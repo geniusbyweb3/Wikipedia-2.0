@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CHRONOS · Wiki Terminal</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* ============ RESET & VARS ============ */
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#04060f;
+  --panel-solid:rgba(8,14,32,0.98);
+  --panel-glass:rgba(8,14,32,0.7);
+  --border:rgba(0,240,255,0.18);
+  --border-hi:rgba(0,240,255,0.55);
+  --cyan:#00f0ff;
+  --magenta:#ff2bd6;
+  --amber:#ffb800;
+  --green:#00ff88;
+  --text:#e6f7ff;
+  --text-2:rgba(230,247,255,0.85);
+  --text-3:rgba(230,247,255,0.4);
+  --font:'Space Grotesk',sans-serif;
+  --mono:'JetBrains Mono',monospace;
+  --ease:cubic-bezier(0.4,0,0.2,1);
+}
+html,body{width:100%;height:100%;overflow:hidden;background:var(--bg)}
+body{font-family:var(--font);color:var(--text);-webkit-font-smoothing:antialiased}
+
+/* ============ BACKGROUND ============ */
+#starfield{position:fixed;inset:0;z-index:0;pointer-events:none}
+.scanlines{position:fixed;inset:0;z-index:998;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.15) 0px,rgba(0,0,0,0.15) 1px,transparent 1px,transparent 3px);opacity:0.35;mix-blend-mode:overlay}
+.vignette{position:fixed;inset:0;z-index:997;pointer-events:none;background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,0.75) 100%)}
+
+/* ============ BOOT SCREEN ============ */
+.boot-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;padding:2rem;transition:opacity 0.8s;font-family:var(--mono)}
+.boot-screen.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.boot-logo{font-size:clamp(2rem,8vw,4.5rem);font-weight:700;letter-spacing:0.3em;color:var(--cyan);text-shadow:0 0 20px var(--cyan);margin-bottom:2rem;animation:pulseGlow 2s infinite}
+@keyframes pulseGlow{0%,100%{text-shadow:0 0 20px var(--cyan)}50%{text-shadow:0 0 40px var(--cyan),0 0 80px var(--magenta)}}
+.boot-progress{width:min(300px,80vw);height:3px;background:rgba(0,240,255,0.1);border-radius:2px;margin-top:1rem}
+.boot-progress-fill{height:100%;width:0%;background:var(--cyan);box-shadow:0 0 15px var(--cyan);transition:width 0.3s}
+
+/* ============ LAYOUT ============ */
+.app{position:relative;z-index:10;height:100vh;display:flex;flex-direction:column;opacity:0;transition:opacity 0.5s}
+.app.active{opacity:1}
+
+/* TOPBAR */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0.8rem 1rem;border-bottom:1px solid var(--border);background:var(--panel-solid);backdrop-filter:blur(20px);gap:1rem;z-index:50;position:relative}
+.brand{display:flex;align-items:center;gap:0.7rem;font-family:var(--mono);font-size:1rem;font-weight:700;letter-spacing:0.15em;color:var(--cyan);cursor:pointer}
+.brand-dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 12px var(--green);animation:pulseDot 1.5s infinite}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:0.4}}
+
+.search-container{flex:1;max-width:600px;position:relative;margin:0 1rem}
+.search-box{position:relative;display:flex;align-items:center}
+.search-box input{width:100%;padding:0.6rem 1rem 0.6rem 2.4rem;border:1px solid var(--border);background:rgba(0,0,0,0.5);color:var(--cyan);font-family:var(--mono);font-size:0.8rem;border-radius:4px;outline:none;transition:all 0.2s}
+.search-box input:focus{border-color:var(--cyan);box-shadow:0 0 15px rgba(0,240,255,0.3)}
+.search-box::before{content:'⌕';position:absolute;left:0.8rem;top:50%;transform:translateY(-50%);color:var(--cyan);font-size:1.1rem}
+
+/* Suggestions */
+.suggestions{position:absolute;top:calc(100% + 5px);left:0;right:0;background:var(--panel-solid);border:1px solid var(--cyan);border-radius:4px;z-index:100;display:none;max-height:300px;overflow-y:auto}
+.suggestions.active{display:block}
+.suggestion-item{padding:0.6rem 1rem;font-family:var(--mono);font-size:0.75rem;color:var(--text-2);cursor:pointer;border-bottom:1px solid rgba(0,240,255,0.1);transition:all 0.2s}
+.suggestion-item:hover{background:rgba(0,240,255,0.15);color:var(--cyan);padding-left:1.5rem}
+
+/* MAIN CONTENT (Grid for Desktop) */
+.main-content{flex:1;display:grid;grid-template-columns:1fr 340px;overflow:hidden}
+
+/* FEED (Left Side) */
+.feed-container{overflow-y:auto;padding:1.5rem;position:relative}
+.feed-container::-webkit-scrollbar{width:6px}
+.feed-container::-webkit-scrollbar-thumb{background:rgba(0,240,255,0.3)}
+
+/* SIDEBAR (Right Side - Desktop Only) */
+.sidebar{background:var(--panel-solid);border-left:1px solid var(--border);overflow-y:auto;padding:1.5rem;display:flex;flex-direction:column;gap:1.5rem}
+.sidebar::-webkit-scrollbar{width:4px}
+.sidebar::-webkit-scrollbar-thumb{background:rgba(0,240,255,0.3)}
+
+/* SECTION TITLES */
+.sec-title{font-family:var(--mono);font-size:0.8rem;color:var(--cyan);letter-spacing:0.15em;text-transform:uppercase;margin-bottom:1rem;display:flex;align-items:center;gap:0.5rem}
+.sec-title::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--cyan),transparent);opacity:0.4}
+
+/* FEATURED CARD */
+.hero-card{position:relative;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--panel-glass);display:flex;flex-direction:column;cursor:pointer;transition:all 0.3s;margin-bottom:2rem}
+.hero-card:hover{border-color:var(--border-hi);box-shadow:0 0 20px rgba(0,240,255,0.15)}
+.hero-img{width:100%;height:320px;object-fit:cover;border-bottom:1px solid var(--border)}
+.hero-content{padding:1.5rem}
+.hero-badge{display:inline-block;font-family:var(--mono);font-size:0.6rem;color:var(--magenta);border:1px solid var(--magenta);padding:0.2rem 0.6rem;border-radius:2px;margin-bottom:0.8rem;text-transform:uppercase}
+.hero-title{font-size:clamp(1.5rem,4vw,2.2rem);color:var(--text);margin-bottom:0.8rem;line-height:1.2}
+.hero-desc{font-size:0.95rem;color:var(--text-2);line-height:1.6;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+
+/* PICTURE OF THE DAY */
+.potd-card{border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:2rem;position:relative;cursor:pointer}
+.potd-img{width:100%;height:250px;object-fit:cover}
+.potd-caption{position:absolute;bottom:0;left:0;right:0;padding:1rem;background:linear-gradient(transparent,rgba(0,0,0,0.9));font-family:var(--mono);font-size:0.7rem;color:var(--text-2)}
+
+/* NEWS GRID */
+.news-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;margin-bottom:2rem}
+.news-card{background:var(--panel-glass);border:1px solid var(--border);border-radius:6px;padding:1rem;cursor:pointer;transition:all 0.2s;border-left:2px solid transparent}
+.news-card:hover{border-color:var(--border-hi);border-left-color:var(--cyan);background:rgba(0,240,255,0.05)}
+.news-card h4{font-size:0.9rem;color:var(--text-2);line-height:1.5;font-weight:400}
+.news-card strong{color:var(--cyan);font-weight:600}
+
+/* DYK LIST */
+.dyk-item{background:rgba(0,0,0,0.3);border:1px solid var(--border);padding:1rem;border-radius:4px;font-size:0.9rem;color:var(--text-2);cursor:pointer;transition:all 0.2s;margin-bottom:0.8rem;line-height:1.5}
+.dyk-item:hover{border-left:3px solid var(--cyan);background:rgba(0,240,255,0.08);padding-left:1.2rem}
+.dyk-item strong{color:var(--cyan)}
+
+/* TRENDING / MOST READ (Sidebar & Mobile H-Scroll) */
+.trending-list{display:flex;flex-direction:column;gap:0.8rem}
+.trend-item{display:flex;gap:0.8rem;align-items:center;cursor:pointer;padding:0.5rem;border-radius:4px;transition:background 0.2s}
+.trend-item:hover{background:rgba(0,240,255,0.08)}
+.trend-num{font-family:var(--mono);font-size:1.2rem;font-weight:700;color:var(--border-hi);width:20px}
+.trend-info h4{font-size:0.85rem;color:var(--text);margin-bottom:0.2rem}
+.trend-info p{font-size:0.7rem;color:var(--text-3);display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+
+/* MOBILE HORIZONTAL SCROLL */
+.h-scroll-container{display:none;overflow-x:auto;gap:1rem;padding-bottom:1rem;scroll-snap-type:x mandatory;margin-bottom:2rem}
+.h-scroll-container::-webkit-scrollbar{display:none}
+.h-trend-card{flex:0 0 200px;background:var(--panel-glass);border:1px solid var(--border);border-radius:6px;padding:1rem;scroll-snap-align:start;cursor:pointer}
+.h-trend-card h4{font-size:0.9rem;color:var(--cyan);margin-bottom:0.4rem}
+.h-trend-card p{font-size:0.75rem;color:var(--text-3);line-height:1.4}
+
+/* ============ READER MODAL ============ */
+.reader-overlay{position:fixed;inset:0;z-index:9500;background:var(--bg);display:none;flex-direction:column;opacity:0;transition:opacity 0.3s}
+.reader-overlay.open{display:flex;opacity:1}
+.reader-header{display:flex;align-items:center;justify-content:space-between;padding:0.8rem 1rem;border-bottom:1px solid var(--border);background:var(--panel-solid)}
+.reader-title{font-family:var(--mono);font-size:0.8rem;color:var(--cyan)}
+.reader-close{background:none;border:1px solid var(--magenta);color:var(--magenta);padding:0.4rem 0.8rem;border-radius:3px;cursor:pointer;font-family:var(--mono);font-size:0.7rem}
+.reader-close:hover{background:rgba(255,43,214,0.15)}
+
+.reader-layout{display:flex;flex:1;overflow:hidden}
+.mobile-toc-toggle{display:none;padding:0.8rem 1rem;background:rgba(0,240,255,0.05);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:0.75rem;color:var(--cyan);cursor:pointer;justify-content:space-between;align-items:center}
+.wiki-toc{width:280px;background:var(--panel-solid);border-right:1px solid var(--border);overflow-y:auto;padding:1.2rem 1rem;display:flex;flex-direction:column;gap:0.3rem}
+.toc-label{font-family:var(--mono);font-size:0.65rem;color:var(--text-3);margin-bottom:0.5rem;padding-bottom:0.5rem;border-bottom:1px dashed var(--border)}
+.toc-link{font-family:var(--mono);font-size:0.75rem;color:var(--text-2);padding:0.4rem 0.6rem;border-radius:3px;cursor:pointer;border-left:2px solid transparent}
+.toc-link:hover{background:rgba(0,240,255,0.1);color:var(--cyan)}
+.toc-link.active{background:rgba(0,240,255,0.15);color:var(--cyan);border-left-color:var(--cyan)}
+.toc-link.h3{padding-left:1.2rem;font-size:0.7rem;color:var(--text-3)}
+
+.reader-body{flex:1;overflow-y:auto;padding:2rem 3rem;scroll-behavior:smooth}
+.reader-body::-webkit-scrollbar{width:6px}
+.reader-body::-webkit-scrollbar-thumb{background:var(--cyan)}
+
+/* Wikipedia Styling */
+.wiki-content h1{font-size:2.2rem;color:var(--cyan);margin-bottom:1rem;border-bottom:1px solid var(--border);padding-bottom:0.5rem}
+.wiki-content h2{font-family:var(--mono);font-size:1.3rem;color:var(--magenta);margin:2rem 0 1rem;border-left:3px solid var(--magenta);padding-left:0.8rem;scroll-margin-top:20px}
+.wiki-content h3{font-family:var(--mono);font-size:1.1rem;color:var(--amber);margin:1.5rem 0 0.8rem;scroll-margin-top:20px}
+.wiki-content p{font-size:0.95rem;line-height:1.8;color:var(--text-2);margin-bottom:1rem;text-align:justify}
+.wiki-content a{color:var(--cyan);text-decoration:none;border-bottom:1px dotted var(--cyan);cursor:pointer}
+.wiki-content img{max-width:100%;height:auto;border-radius:4px;border:1px solid var(--border)}
+.wiki-content figure,.wiki-content .thumb{float:right;margin:0 0 1rem 1.5rem;max-width:320px;background:rgba(0,0,0,0.3);padding:0.5rem;border:1px solid var(--border)}
+.wiki-content figcaption,.wiki-content .thumbcaption{font-family:var(--mono);font-size:0.65rem;color:var(--text-3);padding-top:0.5rem}
+.wiki-content table{width:100%;border-collapse:collapse;margin-bottom:1.5rem;background:rgba(0,0,0,0.3)}
+.wiki-content th,.wiki-content td{padding:0.6rem;border:1px solid var(--border);color:var(--text-2)}
+.wiki-content th{background:rgba(0,240,255,0.1);color:var(--cyan)}
+.wiki-content .infobox{float:right;margin:0 0 1.5rem 1.5rem;max-width:300px}
+.wiki-content .mw-editsection,.wiki-content .navbox,.wiki-content .reference,.wiki-content .noprint{display:none!important}
+
+/* ============ BOTTOM NAV (MOBILE) ============ */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:var(--panel-solid);border-top:1px solid var(--border);z-index:100;justify-content:space-around;padding:0.5rem 0}
+.nav-item{display:flex;flex-direction:column;align-items:center;gap:0.2rem;color:var(--text-3);font-family:var(--mono);font-size:0.6rem;cursor:pointer;text-decoration:none;padding:0.5rem;transition:color 0.2s}
+.nav-item.active,.nav-item:hover{color:var(--cyan)}
+.nav-icon{font-size:1.2rem}
+
+/* RESPONSIVE (MOBILE) */
+@media(max-width:768px){
+  .topbar{flex-wrap:wrap;padding:0.6rem 0.8rem}
+  .search-container{order:3;max-width:100%;margin:0.5rem 0 0 0;width:100%}
+  
+  .main-content{grid-template-columns:1fr}
+  .sidebar{display:none} /* Hide sidebar on mobile */
+  
+  .feed-container{padding:1rem;padding-bottom:80px} /* Space for bottom nav */
+  .hero-img{height:200px}
+  .hero-content{padding:1rem}
+  
+  .h-scroll-container{display:flex} /* Show horizontal scroll for trending */
+  
+  .reader-header{padding:0.6rem 0.8rem}
+  .reader-layout{flex-direction:column}
+  .mobile-toc-toggle{display:flex}
+  .wiki-toc{width:100%;max-height:0;padding:0 1rem;border-right:none;border-bottom:1px solid var(--border);overflow:hidden;transition:max-height 0.3s}
+  .wiki-toc.open{max-height:300px;padding:1rem;overflow-y:auto}
+  .reader-body{padding:1.2rem}
+  .wiki-content figure,.wiki-content .thumb,.wiki-content .infobox{float:none;margin:1rem auto;max-width:100%}
+  
+  .bottom-nav{display:flex}
+}
+</style>
+</head>
+<body>
+
+<canvas id="starfield"></canvas>
+<div class="scanlines"></div>
+<div class="vignette"></div>
+
+<!-- BOOT SCREEN -->
+<div class="boot-screen" id="bootScreen">
+  <div class="boot-logo">CHRONOS</div>
+  <div class="boot-progress"><div class="boot-progress-fill" id="bootProgress"></div></div>
+</div>
+
+<!-- MAIN APP -->
+<div class="app" id="app">
+  <div class="topbar">
+    <div class="brand" onclick="loadLandingPage()">
+      <span class="brand-dot"></span><span>CHRONOS</span>
+    </div>
+    
+    <div class="search-container">
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="SEARCH WIKIPEDIA..." autocomplete="off">
+      </div>
+      <div class="suggestions" id="suggestions"></div>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <!-- LEFT: FEED -->
+    <div class="feed-container" id="feedContainer">
+      <!-- Landing Page Content Injected Here -->
+    </div>
+
+    <!-- RIGHT: SIDEBAR (Desktop Only) -->
+    <div class="sidebar" id="sidebar">
+      <!-- Trending Injected Here -->
+    </div>
+  </div>
+</div>
+
+<!-- MOBILE BOTTOM NAV -->
+<div class="bottom-nav" id="bottomNav">
+  <div class="nav-item active" onclick="loadLandingPage()">
+    <span class="nav-icon">🏠</span><span>Home</span>
+  </div>
+  <div class="nav-item" onclick="scrollToTrending()">
+    <span class="nav-icon">🔥</span><span>Trending</span>
+  </div>
+  <div class="nav-item" onclick="openRandomArticle()">
+    <span class="nav-icon">🎲</span><span>Random</span>
+  </div>
+</div>
+
+<!-- READER MODAL -->
+<div class="reader-overlay" id="readerOverlay">
+  <div class="reader-header">
+    <div class="reader-title"><span style="color:var(--green)">●</span> CHRONOS_READER</div>
+    <button class="reader-close" onclick="closeReader()">✕ CLOSE</button>
+  </div>
+  
+  <div class="mobile-toc-toggle" onclick="toggleMobileTOC()">
+    <span>📑 TABLE OF CONTENTS</span>
+    <span>▼</span>
+  </div>
+
+  <div class="reader-layout">
+    <div class="wiki-toc" id="wikiToc">
+      <div class="toc-label">SECTIONS</div>
+    </div>
+    <div class="reader-body" id="readerBody">
+      <!-- HTML Injected Here -->
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+const state = { featuredData: null, tocObserver: null, searchDebounce: null };
+
+const $ = id => document.getElementById(id);
+const els = {
+  bootScreen:$('bootScreen'), bootProgress:$('bootProgress'), app:$('app'),
+  feedContainer:$('feedContainer'), sidebar:$('sidebar'), searchInput:$('searchInput'), suggestions:$('suggestions'),
+  readerOverlay:$('readerOverlay'), readerBody:$('readerBody'), wikiToc:$('wikiToc'), starfield:$('starfield')
+};
+
+// ================= UTILS =================
+// Fix for the bug: Strip HTML tags from raw text
+function stripHTML(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return doc.body.textContent || "";
+}
+function escapeHTML(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+
+// ================= STARFIELD & BOOT =================
+function initStarfield(){
+  const canvas = els.starfield; const ctx = canvas.getContext('2d');
+  let w,h,stars=[];
+  function resize(){
+    w = canvas.width = window.innerWidth; h = canvas.height = window.innerHeight;
+    stars = [];
+    for(let i=0;i<100;i++) stars.push({ x: Math.random()*w, y: Math.random()*h, r: Math.random()*1.2+0.2, speed: Math.random()*0.3+0.1 });
+  }
+  function draw(){
+    ctx.clearRect(0,0,w,h); ctx.fillStyle = 'rgba(0,240,255,0.6)';
+    for(const s of stars){
+      ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, Math.PI*2); ctx.fill();
+      s.y += s.speed; if(s.y > h){s.y = 0; s.x = Math.random()*w;}
+    }
+    requestAnimationFrame(draw);
+  }
+  resize(); window.addEventListener('resize', resize); draw();
+}
+
+function runBoot(){
+  let p = 0;
+  const prog = setInterval(() => {
+    p += Math.random()*20 + 10; if(p >= 100){p = 100; clearInterval(prog);}
+    els.bootProgress.style.width = p + '%';
+  }, 100);
+
+  setTimeout(() => {
+    els.bootScreen.classList.add('hidden');
+    els.app.classList.add('active');
+    initApp();
+  }, 1200);
+}
+
+// ================= LANDING PAGE DATA =================
+async function fetchFeaturedFeed(){
+  const now = new Date();
+  const y = now.getFullYear(), m = String(now.getMonth() + 1).padStart(2, '0'), d = String(now.getDate()).padStart(2, '0');
+  
+  try {
+    const res = await fetch(`https://en.wikipedia.org/api/rest_v1/feed/featured/${y}/${m}/${d}`);
+    if(!res.ok) throw new Error('Feed unavailable');
+    return await res.json();
+  } catch(err) {
+    // Fallback to a fixed date if today's feed fails
+    const fallback = await fetch(`https://en.wikipedia.org/api/rest_v1/feed/featured/2023/10/15`);
+    return await fallback.json();
+  }
+}
+
+async function loadLandingPage(){
+  window.scrollTo(0,0);
+  els.feedContainer.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--cyan);font-family:var(--mono)">▸ SYNCING DATABASE...</div>`;
+  
+  if(!state.featuredData) state.featuredData = await fetchFeaturedFeed();
+  const data = state.featuredData;
+  
+  if(!data) {
+    els.feedContainer.innerHTML = `<div style="color:var(--magenta);text-align:center;padding:2rem;">⚠ CONNECTION FAILED</div>`;
+    return;
+  }
+
+  let html = '';
+
+  // 1. Most Read (Mobile Horizontal Scroll)
+  if(data.mostread && data.mostread.articles) {
+    html += `<div class="sec-title">🔥 TRENDING NOW</div>
+      <div class="h-scroll-container">`;
+    data.mostread.articles.slice(0, 6).forEach(item => {
+      html += `
+        <div class="h-trend-card" onclick="openReader('${escapeHTML(item.titles.normalized).replace(/'/g,"\\'")}')">
+          <h4>${escapeHTML(item.titles.normalized)}</h4>
+          <p>${item.views.toLocaleString()} views</p>
+        </div>
+      `;
+    });
+    html += `</div>`;
+
+    // Inject into Desktop Sidebar
+    let sidebarHtml = `<div class="sec-title">🔥 MOST READ</div><div class="trending-list">`;
+    data.mostread.articles.slice(0, 8).forEach((item, idx) => {
+      sidebarHtml += `
+        <div class="trend-item" onclick="openReader('${escapeHTML(item.titles.normalized).replace(/'/g,"\\'")}')">
+          <div class="trend-num">${idx + 1}</div>
+          <div class="trend-info">
+            <h4>${escapeHTML(item.titles.normalized)}</h4>
+            <p>${item.views.toLocaleString()} reads</p>
+          </div>
+        </div>
+      `;
+    });
+    sidebarHtml += `</div>`;
+    els.sidebar.innerHTML = sidebarHtml;
+  }
+
+  // 2. Featured Article (Hero)
+  if(data.tfa) {
+    html += `
+      <div class="sec-title">⭐ TODAY'S FEATURED</div>
+      <div class="hero-card" onclick="openReader('${escapeHTML(data.tfa.title).replace(/'/g,"\\'")}')">
+        ${data.tfa.thumbnail ? `<img class="hero-img" src="${data.tfa.thumbnail.source}">` : ''}
+        <div class="hero-content">
+          <span class="hero-badge">Featured</span>
+          <h2 class="hero-title">${escapeHTML(data.tfa.title)}</h2>
+          <p class="hero-desc">${escapeHTML(data.tfa.extract)}</p>
+        </div>
+      </div>
+    `;
+  }
+
+  // 3. Picture of the Day
+  if(data.image) {
+    html += `
+      <div class="sec-title">🖼️ PICTURE OF THE DAY</div>
+      <div class="potd-card" onclick="openReader('${escapeHTML(data.image.title).replace(/'/g,"\\'")}')">
+        <img class="potd-img" src="${data.image.image.source}">
+        <div class="potd-caption">${stripHTML(data.image.description.text)}</div>
+      </div>
+    `;
+  }
+
+  // 4. In The News (FIXED BUG)
+  if(data.news && data.news.length > 0) {
+    html += `<div class="sec-title">📡 IN THE NEWS</div><div class="news-grid">`;
+    data.news.slice(0, 4).forEach(item => {
+      // FIX: Strip HTML tags from the story field so it renders cleanly
+      const cleanStory = stripHTML(item.story);
+      const mainLink = item.links && item.links[0] ? item.links[0].title : 'Portal:Current_events';
+      html += `
+        <div class="news-card" onclick="openReader('${escapeHTML(mainLink).replace(/'/g,"\\'")}')">
+          <h4>${escapeHTML(cleanStory)}</h4>
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+
+  // 5. Did You Know
+  if(data.dyk && data.dyk.length > 0) {
+    html += `<div class="sec-title">💡 DID YOU KNOW...</div><div class="dyk-list">`;
+    data.dyk.slice(0, 5).forEach(item => {
+      const cleanText = stripHTML(item.text);
+      const mainLink = item.links && item.links[0] ? item.links[0].title : '';
+      html += `
+        <div class="dyk-item" onclick="${mainLink ? `openReader('${escapeHTML(mainLink).replace(/'/g,"\\'")}')` : ''}">
+          ${escapeHTML(cleanText)}
+        </div>
+      `;
+    });
+    html += `</div>`;
+  }
+
+  els.feedContainer.innerHTML = html;
+}
+
+// ================= SEARCH =================
+els.searchInput.addEventListener('input', (e) => {
+  clearTimeout(state.searchDebounce);
+  const query = e.target.value.trim();
+  if(query.length < 2) return els.suggestions.classList.remove('active');
+
+  state.searchDebounce = setTimeout(async () => {
+    const res = await fetch(`https://en.wikipedia.org/w/api.php?action=opensearch&search=${encodeURIComponent(query)}&limit=8&format=json&origin=*`);
+    const data = await res.json();
+    const titles = data[1];
+    if(titles && titles.length > 0) {
+      els.suggestions.innerHTML = titles.map(t => 
+        `<div class="suggestion-item" onclick="openReader('${escapeHTML(t).replace(/'/g,"\\'")}'); document.getElementById('searchInput').value=''; document.getElementById('suggestions').classList.remove('active');">${escapeHTML(t)}</div>`
+      ).join('');
+      els.suggestions.classList.add('active');
+    } else els.suggestions.classList.remove('active');
+  }, 300);
+});
+
+document.addEventListener('click', (e) => {
+  if(!e.target.closest('.search-container')) els.suggestions.classList.remove('active');
+});
+
+// ================= RANDOM ARTICLE =================
+async function openRandomArticle(){
+  try {
+    const res = await fetch('https://en.wikipedia.org/w/api.php?action=query&list=random&rnlimit=1&rnnamespace=0&format=json&origin=*');
+    const data = await res.json();
+    if(data.query.random[0]) openReader(data.query.random[0].title);
+  } catch(e) { alert("Failed to load random article."); }
+}
+
+// ================= READER (FULL WIKI) =================
+window.openReader = async function(title) {
+  els.readerOverlay.classList.add('open');
+  els.readerBody.innerHTML = `<div style="text-align:center;padding:3rem;color:var(--cyan);font-family:var(--mono)">DECRYPTING: ${escapeHTML(title)}...</div>`;
+  els.wikiToc.innerHTML = `<div class="toc-label">SECTIONS</div>`;
+  els.readerBody.scrollTop = 0;
+  els.wikiToc.classList.remove('open');
+
+  try {
+    const url = `https://en.wikipedia.org/w/api.php?action=parse&page=${encodeURIComponent(title)}&prop=text&format=json&origin=*`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if(data.error) throw new Error(data.error.info);
+
+    const doc = new DOMParser().parseFromString(data.parse.text['*'], 'text/html');
+    const contentDiv = doc.querySelector('.mw-parser-output');
+    
+    contentDiv.querySelectorAll('.mw-editsection, .navbox, .reference, .mw-cite-backlink, .noprint, .mw-empty-elt, style, script').forEach(el => el.remove());
+    contentDiv.querySelectorAll('img').forEach(img => { if(img.src && img.src.startsWith('//')) img.src = 'https:' + img.src; });
+
+    const headings = contentDiv.querySelectorAll('h2, h3');
+    const tocFragment = document.createDocumentFragment();
+    
+    headings.forEach((heading, index) => {
+      const text = heading.textContent.replace('[edit]', '').trim();
+      if(!text) return;
+      const id = 'sec-' + index;
+      heading.id = id;
+      
+      const link = document.createElement('a');
+      link.className = 'toc-link ' + (heading.tagName.toLowerCase() === 'h3' ? 'h3' : 'h2');
+      link.textContent = text;
+      link.dataset.target = id;
+      link.addEventListener('click', (e) => {
+        e.preventDefault();
+        const targetEl = document.getElementById(id);
+        if(targetEl) {
+          els.readerBody.scrollTo({ top: targetEl.offsetTop - 20, behavior: 'smooth' });
+          if(window.innerWidth <= 768) els.wikiToc.classList.remove('open');
+        }
+      });
+      tocFragment.appendChild(link);
+    });
+    els.wikiToc.appendChild(tocFragment);
+
+    contentDiv.querySelectorAll('a').forEach(a => {
+      let href = a.getAttribute('href');
+      if(href && href.startsWith('/wiki/') && !href.includes(':')) {
+        const pageTitle = decodeURIComponent(href.replace('/wiki/', '')).replace(/_/g, ' ');
+        a.href = 'javascript:void(0)';
+        a.addEventListener('click', (e) => { e.preventDefault(); openReader(pageTitle); });
+      } else if(href && href.startsWith('http')) {
+        a.target = '_blank'; a.rel = 'noopener';
+      }
+    });
+
+    els.readerBody.innerHTML = `<div class="wiki-content">${contentDiv.innerHTML}</div>`;
+    setupScrollSpy();
+
+  } catch(err) {
+    els.readerBody.innerHTML = `<div style="color:var(--magenta);text-align:center;padding:2rem;">ERROR: FAILED TO DECRYPT.<br><br>${escapeHTML(err.message)}</div>`;
+  }
+}
+
+window.closeReader = function() { els.readerOverlay.classList.remove('open'); }
+window.toggleMobileTOC = function() { els.wikiToc.classList.toggle('open'); }
+window.scrollToTrending = function() {
+  document.querySelector('.h-scroll-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function setupScrollSpy() {
+  if(state.tocObserver) state.tocObserver.disconnect();
+  const tocLinks = els.wikiToc.querySelectorAll('.toc-link');
+  const sections = els.readerBody.querySelectorAll('h2, h3');
+  state.tocObserver = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if(entry.isIntersecting) {
+        tocLinks.forEach(link => link.classList.remove('active'));
+        const activeLink = Array.from(tocLinks).find(l => l.dataset.target === entry.target.id);
+        if(activeLink) { activeLink.classList.add('active'); activeLink.scrollIntoView({ block: 'nearest' }); }
+      }
+    });
+  }, { root: els.readerBody, rootMargin: '-10% 0px -80% 0px' });
+  sections.forEach(section => state.tocObserver.observe(section));
+}
+
+// ================= INIT =================
+function initApp(){
+  initStarfield();
+  loadLandingPage();
+}
+
+runBoot();
+})();
+</script>
+</body>
+</html>
